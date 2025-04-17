@@ -217,21 +217,48 @@ const BREAKPOINTS = {
   'mobile-p': { min: 0, max: 479, order: 1 }
 };
 
+// Cache-Variablen für Breakpoints und responsive Werte
+let currentBreakpoint = null;
+const responsiveValueCache = new Map();
+
 // Ermittelt den aktuellen Breakpoint basierend auf der Fensterbreite
 function getCurrentBreakpoint() {
+  // Wenn der aktuelle Breakpoint bereits berechnet wurde, verwende ihn
+  if (currentBreakpoint) return currentBreakpoint;
+  
   const width = window.innerWidth;
   for (const [name, range] of Object.entries(BREAKPOINTS)) {
     if (width >= range.min && width <= range.max) {
+      currentBreakpoint = name;
       return name;
     }
   }
-  return 'desktop'; // Fallback
+  currentBreakpoint = 'desktop'; // Fallback
+  return 'desktop';
+}
+
+// Cache für Element-Werte aufbauen oder aktualisieren
+function cacheResponsiveValuesForElement(element) {
+  const cacheKey = element;
+  if (!responsiveValueCache.has(cacheKey)) {
+    responsiveValueCache.set(cacheKey, new Map());
+  }
+  return responsiveValueCache.get(cacheKey);
 }
 
 // Prüft, ob die Animation für den aktuellen Breakpoint ausgeschlossen werden soll
 function shouldExcludeAnimation(element) {
-  const currentBreakpoint = getCurrentBreakpoint();
-  const currentBreakpointOrder = BREAKPOINTS[currentBreakpoint].order;
+  const breakpoint = getCurrentBreakpoint();
+  const breakpointOrder = BREAKPOINTS[breakpoint].order;
+  
+  // Cache für dieses Element abrufen oder erstellen
+  const elementCache = cacheResponsiveValuesForElement(element);
+  
+  // Prüfen, ob wir das Ergebnis bereits gecacht haben
+  const cacheKey = `exclude_${breakpoint}`;
+  if (elementCache.has(cacheKey)) {
+    return elementCache.get(cacheKey);
+  }
   
   // Prüfe auf neue Exclude-Angabe (data-gsap-exclude="tablet,mobile-p")
   const excludeValue = element.getAttribute('data-gsap-exclude');
@@ -244,37 +271,54 @@ function shouldExcludeAnimation(element) {
       
       // Wenn der aktuelle Breakpoint dem ausgeschlossenen entspricht oder 
       // einen niedrigeren Ordnungswert hat (kaskadierend nach unten)
-      if (BREAKPOINTS[excludedBreakpoint].order >= currentBreakpointOrder) {
+      if (BREAKPOINTS[excludedBreakpoint].order >= breakpointOrder) {
+        elementCache.set(cacheKey, true);
         return true;
       }
     }
   }
   
   // Prüfe auf altes Format für Abwärtskompatibilität (data-gsap-exclude-tablet)
-  if (element.hasAttribute(`data-gsap-exclude-${currentBreakpoint}`)) {
+  if (element.hasAttribute(`data-gsap-exclude-${breakpoint}`)) {
+    elementCache.set(cacheKey, true);
     return true;
   }
   
+  elementCache.set(cacheKey, false);
   return false;
 }
 
-// Holt responsiven Wert für einen Parameter, unter Berücksichtigung des aktuellen Breakpoints
+// Optimierte Funktion zum Abrufen responsiver Werte mit Caching
 function getResponsiveValue(element, paramName, defaultValue) {
-  const currentBreakpoint = getCurrentBreakpoint();
+  const breakpoint = getCurrentBreakpoint();
+  
+  // Cache für dieses Element abrufen oder erstellen
+  const elementCache = cacheResponsiveValuesForElement(element);
+  
+  // Prüfen, ob wir den Wert bereits gecacht haben
+  const cacheKey = `${paramName}_${breakpoint}`;
+  if (elementCache.has(cacheKey)) {
+    return elementCache.get(cacheKey);
+  }
   
   // 1. Versuche breakpoint-spezifisches Attribut zu finden (z.B. data-gsap-end-y-tablet)
-  const breakpointValue = element.getAttribute(`data-gsap-${paramName}-${currentBreakpoint}`);
+  const breakpointValue = element.getAttribute(`data-gsap-${paramName}-${breakpoint}`);
   if (breakpointValue !== null) {
-    return isNaN(parseFloat(breakpointValue)) ? breakpointValue : parseFloat(breakpointValue);
+    const value = isNaN(parseFloat(breakpointValue)) ? breakpointValue : parseFloat(breakpointValue);
+    elementCache.set(cacheKey, value);
+    return value;
   }
   
   // 2. Fallback auf Standard-Attribut (z.B. data-gsap-end-y)
   const standardValue = element.getAttribute(`data-gsap-${paramName}`);
   if (standardValue !== null) {
-    return isNaN(parseFloat(standardValue)) ? standardValue : parseFloat(standardValue);
+    const value = isNaN(parseFloat(standardValue)) ? standardValue : parseFloat(standardValue);
+    elementCache.set(cacheKey, value);
+    return value;
   }
   
   // 3. Letzer Fallback auf übergebenen Standardwert
+  elementCache.set(cacheKey, defaultValue);
   return defaultValue;
 }
 
@@ -303,6 +347,81 @@ function getScrollPositions(el) {
 // Hilfsfunktion zur Überprüfung von data-gsap-markers
 function hasMarkers(element) {
   return element.getAttribute('data-gsap-markers') === 'true';
+}
+
+// Erkennt iOS-Geräte
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+// Optimierungen für ScrollTrigger, besonders für iOS
+function optimizeScrollTrigger() {
+  // Grundlegende Optimierungen für alle Geräte
+  ScrollTrigger.config({
+    // Ignoriert mobile resize events, die durch das Ein-/Ausblenden 
+    // der Adressleiste verursacht werden (wichtig für iOS)
+    ignoreMobileResize: true
+  });
+  
+  // Zusätzliche iOS-spezifische Optimierungen
+  if (isIOS()) {
+    // Gibt iOS mehr Zeit, Momentum-Scroll zu initialisieren
+    ScrollTrigger.config({
+      // Reduziert die Anzahl der Auto-Refreshes (für bessere Performance)
+      autoRefreshEvents: "visibilitychange,DOMContentLoaded,load",
+      // Vermeidet Probleme mit der iOS-Tastatur
+      syncInterval: 150
+    });
+  }
+}
+
+// Optimierter Event-Listener für responsives Verhalten
+function setupResponsiveListeners() {
+  // Cache für den aktuellen Breakpoint
+  currentBreakpoint = getCurrentBreakpoint();
+  
+  // Variable für Timeout-ID
+  let resizeTimeout;
+  
+  // Resize-Handler mit Debounce
+  window.addEventListener('resize', function() {
+    // Debounce für bessere Performance
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(function() {
+      // Prüfen, ob sich der Breakpoint tatsächlich geändert hat
+      const newBreakpoint = getCurrentBreakpoint();
+      if (newBreakpoint !== currentBreakpoint) {
+        // Breakpoint hat sich geändert, Cache leeren
+        currentBreakpoint = newBreakpoint;
+        responsiveValueCache.clear();
+        
+        // Forciere Aktualisierung aller ScrollTrigger-Instanzen
+        ScrollTrigger.refresh();
+      }
+    }, 250);
+  });
+  
+  // Spezielle Behandlung für Orientierungswechsel (wichtig für Mobile)
+  window.addEventListener('orientationchange', function() {
+    // Nach Orientierungswechsel mehr Zeit geben, damit sich das Gerät anpassen kann
+    setTimeout(function() {
+      // Breakpoint neu ermitteln und Cache leeren
+      currentBreakpoint = getCurrentBreakpoint();
+      responsiveValueCache.clear();
+      
+      // ScrollTrigger aktualisieren
+      ScrollTrigger.refresh();
+    }, 350); // Längere Verzögerung für zuverlässigere Aktualisierung
+  });
+}
+
+// Initialisiert alle Optimierungen
+function initOptimizations() {
+  // ScrollTrigger optimieren
+  optimizeScrollTrigger();
+  
+  // Responsive Listener einrichten
+  setupResponsiveListeners();
 }
 
 // ================================================================
@@ -467,7 +586,13 @@ document.querySelectorAll('[data-gsap-parallax]').forEach(function(el){
         end: endPos,
         scrub: scrub,
         markers: hasMarkers(el),
-        ease: ease
+        ease: ease,
+        // Für iOS optimierte Einstellungen
+        ...(isIOS() && {
+          invalidateOnRefresh: true,  // Besser für Orientierungswechsel
+          fastScrollEnd: true,        // Verbessert das Ende von schnellem Scrollen
+          preventOverlaps: true       // Verhindert Überlappungen bei schnellen Scrolls
+        })
       }
     });
 });
@@ -614,7 +739,7 @@ document.querySelectorAll('[data-gsap-scrollwords]').forEach(function(el) {
   const endX = getResponsiveValue(el, 'end-x', 0);
   const startOpacity = getResponsiveValue(el, 'start-opacity', 0);
   const endOpacity = getResponsiveValue(el, 'end-opacity', 1);
-  const scrubValue = getResponsiveValue(el, 'scrub', 2);
+  const scrub = getResponsiveValue(el, 'scrub', 2);
   const wordSpread = getResponsiveValue(el, 'word-spread', 0.5);
   const ease = getResponsiveValue(el, 'ease', "none");
   const scrollWordsType = el.getAttribute('data-gsap-scrollwords');
@@ -667,8 +792,14 @@ document.querySelectorAll('[data-gsap-scrollwords]').forEach(function(el) {
       trigger: triggerElement,
       start: startPos,
       end: endPos,
-      scrub: scrubValue, 
-      markers: hasMarkers(el)
+      scrub: scrub,
+      markers: hasMarkers(el),
+      // Für iOS optimierte Einstellungen
+      ...(isIOS() && {
+        invalidateOnRefresh: true,
+        fastScrollEnd: true,
+        preventOverlaps: true
+      })
     }
   });
   
@@ -744,16 +875,9 @@ document.querySelectorAll('[data-gsap-scrollwords]').forEach(function(el) {
   });
 });
 
-// Resize-Listener für responsives Verhalten
-let resizeTimeout;
-window.addEventListener('resize', function() {
-  // Debounce für bessere Performance
-  clearTimeout(resizeTimeout);
-  resizeTimeout = setTimeout(function() {
-    // Forciere Aktualisierung aller ScrollTrigger-Instanzen
-    ScrollTrigger.refresh();
-  }, 250);
-});
+// Alte Resize-Listener durch optimierte Version ersetzen
+// und die initialen Optimierungen anwenden
+initOptimizations();
 
 })(); // Ende der IIFE für GSAP Animation Initialisierung
 
