@@ -906,6 +906,16 @@ document.addEventListener('DOMContentLoaded', () => {
   let dropdownRect = null;
   let workItemRect = null;
   
+  // Tracker für Mausbewegung
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+  let hasMouseMoved = false;
+  let cursorIsReady = false;
+  
+  // Verzögerungsvariablen und Status-Tracker
+  let dropdownLeaveTimeout = null;
+  let isHoveringDropdown = false;
+  
   // =================== PHYSIKBASIERTE ANIMATION ===================
   // Für Beschleunigungseffekt
   let targetX = 0;
@@ -914,12 +924,14 @@ document.addEventListener('DOMContentLoaded', () => {
   let skewVelocity = 0;
   
   // =================== CURSOR INITIALIZATION ======================
-  // Initial GSAP setup für den Cursor
+  // Initial GSAP setup für den Cursor (mit Opacity 0)
   if (cursorDropdowns) {
       gsap.set(cursorDropdowns, { 
           xPercent: -50, 
           yPercent: -50, 
-          transformOrigin: 'center center'
+          transformOrigin: 'center center',
+          opacity: 0,
+          visibility: 'hidden'
       });
   }
   
@@ -927,7 +939,9 @@ document.addEventListener('DOMContentLoaded', () => {
       gsap.set(cursorLinks, { 
           xPercent: -50, 
           yPercent: -50, 
-          transformOrigin: 'center center'
+          transformOrigin: 'center center',
+          opacity: 0,
+          visibility: 'hidden'
       });
   }
   
@@ -947,9 +961,43 @@ document.addEventListener('DOMContentLoaded', () => {
       // Nicht komplett returnen, damit links-cursor noch funktioniert
   }
   
+  // Hilfsfunktion: Cursor nur anzeigen, wenn er an der richtigen Position ist
+  function showCursorWhenReady(cursorElement, x, y) {
+      if (!cursorElement || !hasMouseMoved) return;
+      
+      // Cursor an die aktuelle Mausposition setzen
+      gsap.set(cursorElement, {
+          x: x,
+          y: y
+      });
+      
+      // Cursor einblenden, erst wenn die Maus bewegt wurde
+      if (!cursorElement.classList.contains('active')) return;
+      
+      if (!cursorIsReady) {
+          // Verzögertes Einblenden, um sicherzustellen, dass der Cursor an der richtigen Position ist
+          setTimeout(() => {
+              gsap.to(cursorElement, {
+                  opacity: 1,
+                  visibility: 'visible',
+                  duration: 0.2,
+                  ease: 'power2.out'
+              });
+              cursorIsReady = true;
+          }, 20);
+      }
+  }
+  
   // =================== MOUSEMOVE EVENT HANDLING ===================
   // Mousemove Event für Cursor-Positionierung
   document.addEventListener('mousemove', function(e) {
+      // Setze hasMouseMoved auf true, sobald die Maus bewegt wurde
+      hasMouseMoved = true;
+      
+      // Speichern der aktuellen Mausposition
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      
       // Parallax für Work Item Images
       if (workImgWrappers.length > 0) {
           // Berechne relative Position (0 bis 1) basierend auf Viewport-Breite
@@ -974,6 +1022,10 @@ document.addEventListener('DOMContentLoaded', () => {
                   rotation: rotationDeg,
                   ease: "power3.out"
               });
+              
+              // Cursor anzeigen, wenn er bereit ist
+              showCursorWhenReady(cursorDropdowns, e.clientX, e.clientY);
+              
           } else if (currentWorkItem && workItemRect && cursorLinks) {
               // Relative Positionen berechnen für Work Step
               const relativeX = (e.clientX - workItemRect.left) / workItemRect.width;
@@ -989,16 +1041,23 @@ document.addEventListener('DOMContentLoaded', () => {
                   rotation: rotationDeg,
                   ease: "power3.out"
               });
+              
+              // Cursor anzeigen, wenn er bereit ist
+              showCursorWhenReady(cursorLinks, e.clientX, e.clientY);
+              
           } else {
-              // Normale Bewegung ohne Rotation
+              // Normale Bewegung ohne Rotation - Cursor verstecken
               if (cursorDropdowns) {
                   gsap.to(cursorDropdowns, {
                       duration: 0.2,
                       x: e.clientX,
                       y: e.clientY,
                       rotation: 0,
-                      ease: "power3.out"
+                      ease: "power3.out",
+                      opacity: 0,
+                      visibility: 'hidden'
                   });
+                  cursorIsReady = false;
               }
               
               if (cursorLinks) {
@@ -1007,8 +1066,11 @@ document.addEventListener('DOMContentLoaded', () => {
                       x: e.clientX,
                       y: e.clientY,
                       rotation: 0,
-                      ease: "power3.out"
+                      ease: "power3.out",
+                      opacity: 0,
+                      visibility: 'hidden'
                   });
+                  cursorIsReady = false;
               }
           }
       }
@@ -1022,20 +1084,72 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Hover Events
       dropdown.addEventListener('mouseenter', () => {
+          // Wenn ein Timeout zum Ausblenden gesetzt war, abbrechen
+          if (dropdownLeaveTimeout) {
+              clearTimeout(dropdownLeaveTimeout);
+              dropdownLeaveTimeout = null;
+          }
+          
+          isHoveringDropdown = true;
           cursorDropdowns.classList.add('active');
           currentDropdown = dropdown;
           dropdownRect = dropdown.getBoundingClientRect();
           
-          // Hier wird die vertikale Linie ausgeblendet, aber nur beim Dropdown-Hover
-          // NICHT abhängig vom Checkbox-Status (geöffneter Dropdown)
+          // Text basierend auf dem aktuellen Zustand dieses spezifischen Dropdowns aktualisieren
+          updateCursorTextState(checkbox.checked);
+          
+          // Vertikale Linie basierend auf Checkbox-Status ein-/ausblenden
+          if (cursorVerticalLine) {
+              // Gleiche Animation wie beim Click verwenden
+              if (checkbox.checked) {
+                  // Nach oben ausblenden (wenn geöffnet)
+                  gsap.to(cursorVerticalLine, {
+                      opacity: 0,
+                      y: "-30%", // Hochanimieren
+                      duration: 0.15,
+                      ease: "power2.out" // Etwas smoothere Easing-Funktion
+                  });
+              } else {
+                  // Direkt an der aktuellen Position wieder einblenden
+                  gsap.to(cursorVerticalLine, {
+                      opacity: 1,
+                      y: 0, // Zurück zur Ausgangsposition
+                      duration: 0.15,
+                      ease: "power2.out" // Etwas smoothere Easing-Funktion
+                  });
+              }
+          }
+          
+          // Cursor nur anzeigen, wenn die Maus bereits bewegt wurde
+          if (hasMouseMoved) {
+              // Cursor an die aktuelle Mausposition setzen und dann erst einblenden
+              showCursorWhenReady(cursorDropdowns, lastMouseX, lastMouseY);
+          }
       });
       
       dropdown.addEventListener('mouseleave', () => {
-          cursorDropdowns.classList.remove('active');
-          currentDropdown = null;
-          dropdownRect = null;
+          // Verzögern des Ausblendens, um Flackern zu vermeiden
+          dropdownLeaveTimeout = setTimeout(() => {
+              // Nur ausblenden, wenn wir nicht über einem anderen Dropdown sind
+              if (!isHoveringDropdown) {
+                  cursorDropdowns.classList.remove('active');
+                  currentDropdown = null;
+                  dropdownRect = null;
+                  
+                  // Cursor ausblenden mit etwas Verzögerung
+                  gsap.to(cursorDropdowns, {
+                      opacity: 0,
+                      visibility: 'hidden',
+                      duration: 0.2,
+                      ease: "power3.out"
+                  });
+                  cursorIsReady = false;
+              }
+              
+              dropdownLeaveTimeout = null;
+          }, 50); // Kurze Verzögerung, um Flackern zu vermeiden
           
-          // Hier wird die vertikale Linie wieder eingeblendet
+          isHoveringDropdown = false;
       });
       
       // Checkbox Change Event
@@ -1050,16 +1164,16 @@ document.addEventListener('DOMContentLoaded', () => {
                   gsap.to(cursorVerticalLine, {
                       opacity: 0,
                       y: "-30%", // Hochanimieren
-                      duration: 0.15, // 100ms für schnellere Animation
-                      ease: "ease" // Linear und gleichmäßig
+                      duration: 0.15,
+                      ease: "power2.out" // Etwas smoothere Easing-Funktion
                   });
               } else {
                   // Direkt an der aktuellen Position wieder einblenden
                   gsap.to(cursorVerticalLine, {
                       opacity: 1,
                       y: 0, // Zurück zur Ausgangsposition
-                      duration: 0.15, // 100ms für schnellere Animation
-                      ease: "ease" // Linear und gleichmäßig
+                      duration: 0.15,
+                      ease: "power2.out" // Etwas smoothere Easing-Funktion
                   });
               }
           }
@@ -1089,9 +1203,16 @@ document.addEventListener('DOMContentLoaded', () => {
           cursorLinks.classList.add('active');
           currentWorkItem = workItem;
           workItemRect = workItem.getBoundingClientRect();
+          
           // Zeige Image Wrapper
           if (imgWrapper) {
               gsap.set(imgWrapper, { opacity: 1 });
+          }
+          
+          // Cursor nur anzeigen, wenn die Maus bereits bewegt wurde
+          if (hasMouseMoved) {
+              // Cursor an die aktuelle Mausposition setzen und dann erst einblenden
+              showCursorWhenReady(cursorLinks, lastMouseX, lastMouseY);
           }
       });
       
@@ -1099,10 +1220,20 @@ document.addEventListener('DOMContentLoaded', () => {
           cursorLinks.classList.remove('active');
           currentWorkItem = null;
           workItemRect = null;
+          
           // Verstecke Image Wrapper
           if (imgWrapper) {
               gsap.set(imgWrapper, { opacity: 0 });
           }
+          
+          // Cursor ausblenden
+          gsap.to(cursorLinks, {
+              opacity: 0,
+              visibility: 'hidden',
+              duration: 0.2,
+              ease: "power3.out"
+          });
+          cursorIsReady = false;
       });
   });
   
@@ -1154,4 +1285,23 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Animation starten
   animateWorkImages();
+});
+
+// ================================================================
+// =============== CLOSE MENU ON ANCHOR CLICK =====================
+// ================================================================
+Webflow ||= [];
+Webflow.push(function() {
+  const navButton = document.querySelector('.nav_component .w-nav-button');
+  const anchorLinks = document.querySelectorAll(
+    '.nav_component .w-nav-menu a[href^="#"], .nav_component .w-nav-menu a[href^="/#"]'
+  );
+  if (!navButton || anchorLinks.length === 0) return;
+  anchorLinks.forEach(link => {
+    link.addEventListener('click', () => {
+      if (navButton.classList.contains('w--open')) {
+        navButton.click();
+      }
+    });
+  });
 });
