@@ -895,7 +895,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const cursorLinks = document.querySelector('.custom-cursor-links');
   if (!cursorDropdowns && !cursorLinks) return;
   
-  const dropdowns = document.querySelectorAll('.services_dropdown, .approach_dropdown');
+  const dropdowns = document.querySelectorAll('.services_dropdown, .approach_dropdown, .webflow-benefits_dropdown');
   const workItems = document.querySelectorAll('.work_item');
   const workImgWrappers = document.querySelectorAll('.work_img-wrapper');
   
@@ -1079,7 +1079,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // =================== DROPDOWN INTERACTION ======================
   // Hover Events für Dropdowns
   dropdowns.forEach(dropdown => {
-      const checkbox = dropdown.querySelector('.services_dropdown-checkbox, .approach_dropdown-checkbox');
+      const checkbox = dropdown.querySelector('.services_dropdown-checkbox, .approach_dropdown-checkbox, .webflow-benefits_dropdown-checkbox');
       if (!checkbox) return; 
       
       // Hover Events
