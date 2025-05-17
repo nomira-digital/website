@@ -893,18 +893,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // Elemente finden
   const cursorDropdowns = document.querySelector('.custom-cursor-dropdowns');
   const cursorLinks = document.querySelector('.custom-cursor-links');
-  if (!cursorDropdowns && !cursorLinks) return;
+  const cursorOffer = document.querySelector('.custom-cursor-offer');
+  if (!cursorDropdowns && !cursorLinks && !cursorOffer) return;
   
   const dropdowns = document.querySelectorAll('.services_dropdown, .approach_dropdown, .webflow-benefits_dropdown');
   const workItems = document.querySelectorAll('.work_item');
+  const offerCards = document.querySelectorAll('.offer_card');
   const workImgWrappers = document.querySelectorAll('.work_img-wrapper');
   
   // =================== CURSOR VARIABLES & SETUP =====================
   // Aktuelle Hover-Information
   let currentDropdown = null;
   let currentWorkItem = null;
+  let currentOfferCard = null;
   let dropdownRect = null;
   let workItemRect = null;
+  let offerCardRect = null;
   
   // Tracker für Mausbewegung
   let lastMouseX = 0;
@@ -925,25 +929,20 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // =================== CURSOR INITIALIZATION ======================
   // Initial GSAP setup für den Cursor (mit Opacity 0)
-  if (cursorDropdowns) {
-      gsap.set(cursorDropdowns, { 
-          xPercent: -50, 
-          yPercent: -50, 
-          transformOrigin: 'center center',
-          opacity: 0,
-          visibility: 'hidden'
+  const initializeCursor = (cursor) => {
+    if (cursor) {
+      gsap.set(cursor, { 
+        xPercent: -50, 
+        yPercent: -50, 
+        transformOrigin: 'center center',
+        opacity: 0,
+        visibility: 'hidden'
       });
-  }
+    }
+  };
   
-  if (cursorLinks) {
-      gsap.set(cursorLinks, { 
-          xPercent: -50, 
-          yPercent: -50, 
-          transformOrigin: 'center center',
-          opacity: 0,
-          visibility: 'hidden'
-      });
-  }
+  // Alle Cursor initialisieren
+  [cursorDropdowns, cursorLinks, cursorOffer].forEach(initializeCursor);
   
   // Setup für Text-Elemente
   let cursorTextWrapper = null;
@@ -951,336 +950,348 @@ document.addEventListener('DOMContentLoaded', () => {
   let cursorVerticalLine = null;
   
   if (cursorDropdowns) {
-      cursorTextWrapper = cursorDropdowns.querySelector('.cursor-text-wrapper-dropdowns');
-      cursorTextElements = cursorDropdowns.querySelectorAll('.cursor-text-dropdowns');
-      cursorVerticalLine = cursorDropdowns.querySelector('.cursor-icon-vertical-line');
+    cursorTextWrapper = cursorDropdowns.querySelector('.cursor-text-wrapper-dropdowns');
+    cursorTextElements = cursorDropdowns.querySelectorAll('.cursor-text-dropdowns');
+    cursorVerticalLine = cursorDropdowns.querySelector('.cursor-icon-vertical-line');
   }
   
   if (cursorDropdowns && (!cursorTextWrapper || cursorTextElements.length === 0)) {
-      console.warn('Cursor text elements not found');
-      // Nicht komplett returnen, damit links-cursor noch funktioniert
+    console.warn('Cursor text elements not found');
+    // Nicht komplett returnen, damit links-cursor noch funktioniert
   }
   
+  // =================== HELPER FUNCTIONS ==========================
   // Hilfsfunktion: Cursor nur anzeigen, wenn er an der richtigen Position ist
   function showCursorWhenReady(cursorElement, x, y) {
-      if (!cursorElement || !hasMouseMoved) return;
-      
-      // Cursor an die aktuelle Mausposition setzen
-      gsap.set(cursorElement, {
-          x: x,
-          y: y
+    if (!cursorElement || !hasMouseMoved) return;
+    
+    // Cursor an die aktuelle Mausposition setzen
+    gsap.set(cursorElement, {
+      x: x,
+      y: y
+    });
+    
+    // Cursor einblenden, erst wenn die Maus bewegt wurde
+    if (!cursorElement.classList.contains('active')) return;
+    
+    if (!cursorIsReady) {
+      // Verzögertes Einblenden, um sicherzustellen, dass der Cursor an der richtigen Position ist
+      setTimeout(() => {
+        gsap.to(cursorElement, {
+          opacity: 1,
+          visibility: 'visible',
+          duration: 0.2,
+          ease: 'power2.out'
+        });
+        cursorIsReady = true;
+      }, 20);
+    }
+  }
+  
+  // Hilfsfunktion zum Ausblenden aller Cursor
+  function hideAllCursors() {
+    const allCursors = [cursorDropdowns, cursorLinks, cursorOffer];
+    
+    allCursors.forEach(cursor => {
+      if (cursor) {
+        gsap.to(cursor, {
+          duration: 0.2,
+          x: lastMouseX,
+          y: lastMouseY,
+          rotation: 0,
+          ease: "power3.out",
+          opacity: 0,
+          visibility: 'hidden'
+        });
+      }
+    });
+    cursorIsReady = false;
+  }
+  
+  // Hilfsfunktion zum Animieren eines bestimmten Cursors
+  function animateCursor(cursor, x, y, rect) {
+    if (!cursor || !rect) return;
+    
+    // Relative Position berechnen
+    const relativeX = (x - rect.left) / rect.width;
+    
+    // Rotation
+    const rotationDeg = 15 + (relativeX * -30);
+    
+    // Animation
+    gsap.to(cursor, {
+      duration: 0.2,
+      x: x,
+      y: y,
+      rotation: rotationDeg,
+      ease: "power3.out"
+    });
+    
+    // Cursor anzeigen
+    showCursorWhenReady(cursor, x, y);
+  }
+  
+  // Funktion zum Aktualisieren der Text-Zustände
+  function updateCursorTextState(isChecked) {
+    if (cursorTextElements.length === 0) return;
+    
+    // Animation ohne unnötige Parameter
+    const offset = isChecked ? "-1.1em" : "0";
+    cursorTextElements.forEach(element => {
+      gsap.to(element, {
+        y: offset,
+        duration: 0.1, // 100ms für schnellere, gleichmäßigere Animation
+        ease: "ease" // Linear und gleichmäßig
+      });
+    });
+  }
+  
+  // Hilfsfunktion für gemeinsames Hover-Verhalten
+  function setupHoverBehavior(elements, cursor, currentElementSetter, rectSetter, options = {}) {
+    if (!cursor || elements.length === 0) return;
+    
+    elements.forEach(element => {
+      // Hover Events
+      element.addEventListener('mouseenter', () => {
+        cursor.classList.add('active');
+        currentElementSetter(element);
+        rectSetter(element.getBoundingClientRect());
+        
+        // Zusätzliche Aktionen beim mouseenter
+        if (options.onEnter) options.onEnter(element);
+        
+        // Cursor nur anzeigen, wenn die Maus bereits bewegt wurde
+        if (hasMouseMoved) {
+          showCursorWhenReady(cursor, lastMouseX, lastMouseY);
+        }
       });
       
-      // Cursor einblenden, erst wenn die Maus bewegt wurde
-      if (!cursorElement.classList.contains('active')) return;
-      
-      if (!cursorIsReady) {
-          // Verzögertes Einblenden, um sicherzustellen, dass der Cursor an der richtigen Position ist
-          setTimeout(() => {
-              gsap.to(cursorElement, {
-                  opacity: 1,
-                  visibility: 'visible',
-                  duration: 0.2,
-                  ease: 'power2.out'
-              });
-              cursorIsReady = true;
-          }, 20);
-      }
+      element.addEventListener('mouseleave', () => {
+        cursor.classList.remove('active');
+        currentElementSetter(null);
+        rectSetter(null);
+        
+        // Zusätzliche Aktionen beim mouseleave
+        if (options.onLeave) options.onLeave(element);
+        
+        // Cursor ausblenden
+        gsap.to(cursor, {
+          opacity: 0,
+          visibility: 'hidden',
+          duration: 0.2,
+          ease: "power3.out"
+        });
+        cursorIsReady = false;
+      });
+    });
   }
   
   // =================== MOUSEMOVE EVENT HANDLING ===================
   // Mousemove Event für Cursor-Positionierung
   document.addEventListener('mousemove', function(e) {
-      // Setze hasMouseMoved auf true, sobald die Maus bewegt wurde
-      hasMouseMoved = true;
+    // Setze hasMouseMoved auf true, sobald die Maus bewegt wurde
+    hasMouseMoved = true;
+    
+    // Speichern der aktuellen Mausposition
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    
+    // Parallax für Work Item Images
+    if (workImgWrappers.length > 0) {
+      // Berechne relative Position (0 bis 1) basierend auf Viewport-Breite
+      const relativeX = e.clientX / window.innerWidth;
       
-      // Speichern der aktuellen Mausposition
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
+      // Berechne Verschiebung (von -8rem bis +8rem)
+      targetX = (relativeX - 0.5) * 128; // 0.5 ist die Mitte, 128 ist die maximale Verschiebung in PX
       
-      // Parallax für Work Item Images
-      if (workImgWrappers.length > 0) {
-          // Berechne relative Position (0 bis 1) basierend auf Viewport-Breite
-          const relativeX = e.clientX / window.innerWidth;
-          
-          // Berechne Verschiebung (von -8rem bis +8rem)
-          targetX = (relativeX - 0.5) * 128; // 0.5 ist die Mitte, 128 ist die maximale Verschiebung in PX
-          
-          // Wenn über einem Dropdown, füge Rotation hinzu
-          if (currentDropdown && dropdownRect) {
-              // Relative Positionen berechnen (0 bis 1)
-              const relativeX = (e.clientX - dropdownRect.left) / dropdownRect.width;
-              
-              // Rotation
-              const rotationDeg = 15 + (relativeX * -30);
-              
-              // Animation mit GSAP
-              gsap.to(cursorDropdowns, {
-                  duration: 0.2,
-                  x: e.clientX,
-                  y: e.clientY,
-                  rotation: rotationDeg,
-                  ease: "power3.out"
-              });
-              
-              // Cursor anzeigen, wenn er bereit ist
-              showCursorWhenReady(cursorDropdowns, e.clientX, e.clientY);
-              
-          } else if (currentWorkItem && workItemRect && cursorLinks) {
-              // Relative Positionen berechnen für Work Step
-              const relativeX = (e.clientX - workItemRect.left) / workItemRect.width;
-              
-              // Rotation
-              const rotationDeg = 15 + (relativeX * -30);
-              
-              // Animation mit GSAP für Links-Cursor
-              gsap.to(cursorLinks, {
-                  duration: 0.2,
-                  x: e.clientX,
-                  y: e.clientY,
-                  rotation: rotationDeg,
-                  ease: "power3.out"
-              });
-              
-              // Cursor anzeigen, wenn er bereit ist
-              showCursorWhenReady(cursorLinks, e.clientX, e.clientY);
-              
-          } else {
-              // Normale Bewegung ohne Rotation - Cursor verstecken
-              if (cursorDropdowns) {
-                  gsap.to(cursorDropdowns, {
-                      duration: 0.2,
-                      x: e.clientX,
-                      y: e.clientY,
-                      rotation: 0,
-                      ease: "power3.out",
-                      opacity: 0,
-                      visibility: 'hidden'
-                  });
-                  cursorIsReady = false;
-              }
-              
-              if (cursorLinks) {
-                  gsap.to(cursorLinks, {
-                      duration: 0.2,
-                      x: e.clientX,
-                      y: e.clientY,
-                      rotation: 0,
-                      ease: "power3.out",
-                      opacity: 0,
-                      visibility: 'hidden'
-                  });
-                  cursorIsReady = false;
-              }
-          }
+      // Animiere den entsprechenden Cursor basierend auf dem aktiven Element
+      if (currentDropdown && dropdownRect) {
+        animateCursor(cursorDropdowns, e.clientX, e.clientY, dropdownRect);
+      } else if (currentWorkItem && workItemRect) {
+        animateCursor(cursorLinks, e.clientX, e.clientY, workItemRect);
+      } else if (currentOfferCard && offerCardRect) {
+        animateCursor(cursorOffer, e.clientX, e.clientY, offerCardRect);
+      } else {
+        hideAllCursors();
       }
+    }
   });
 
   // =================== DROPDOWN INTERACTION ======================
   // Hover Events für Dropdowns
   dropdowns.forEach(dropdown => {
-      const checkbox = dropdown.querySelector('.services_dropdown-checkbox, .approach_dropdown-checkbox, .webflow-benefits_dropdown-checkbox');
-      if (!checkbox) return; 
-      
-      // Hover Events
-      dropdown.addEventListener('mouseenter', () => {
-          // Wenn ein Timeout zum Ausblenden gesetzt war, abbrechen
-          if (dropdownLeaveTimeout) {
-              clearTimeout(dropdownLeaveTimeout);
-              dropdownLeaveTimeout = null;
-          }
-          
-          isHoveringDropdown = true;
-          cursorDropdowns.classList.add('active');
-          currentDropdown = dropdown;
-          dropdownRect = dropdown.getBoundingClientRect();
-          
-          // Text basierend auf dem aktuellen Zustand dieses spezifischen Dropdowns aktualisieren
-          updateCursorTextState(checkbox.checked);
-          
-          // Vertikale Linie basierend auf Checkbox-Status ein-/ausblenden
-          if (cursorVerticalLine) {
-              // Gleiche Animation wie beim Click verwenden
-              if (checkbox.checked) {
-                  // Nach oben ausblenden (wenn geöffnet)
-                  gsap.to(cursorVerticalLine, {
-                      opacity: 0,
-                      y: "-30%", // Hochanimieren
-                      duration: 0.15,
-                      ease: "power2.out" // Etwas smoothere Easing-Funktion
-                  });
-              } else {
-                  // Direkt an der aktuellen Position wieder einblenden
-                  gsap.to(cursorVerticalLine, {
-                      opacity: 1,
-                      y: 0, // Zurück zur Ausgangsposition
-                      duration: 0.15,
-                      ease: "power2.out" // Etwas smoothere Easing-Funktion
-                  });
-              }
-          }
-          
-          // Cursor nur anzeigen, wenn die Maus bereits bewegt wurde
-          if (hasMouseMoved) {
-              // Cursor an die aktuelle Mausposition setzen und dann erst einblenden
-              showCursorWhenReady(cursorDropdowns, lastMouseX, lastMouseY);
-          }
-      });
-      
-      dropdown.addEventListener('mouseleave', () => {
-          // Verzögern des Ausblendens, um Flackern zu vermeiden
-          dropdownLeaveTimeout = setTimeout(() => {
-              // Nur ausblenden, wenn wir nicht über einem anderen Dropdown sind
-              if (!isHoveringDropdown) {
-                  cursorDropdowns.classList.remove('active');
-                  currentDropdown = null;
-                  dropdownRect = null;
-                  
-                  // Cursor ausblenden mit etwas Verzögerung
-                  gsap.to(cursorDropdowns, {
-                      opacity: 0,
-                      visibility: 'hidden',
-                      duration: 0.2,
-                      ease: "power3.out"
-                  });
-                  cursorIsReady = false;
-              }
-              
-              dropdownLeaveTimeout = null;
-          }, 50); // Kurze Verzögerung, um Flackern zu vermeiden
-          
-          isHoveringDropdown = false;
-      });
-      
-      // Checkbox Change Event
-      checkbox.addEventListener('change', () => {
-          // Text und vertikale Linie gleichzeitig animieren
-          updateCursorTextState(checkbox.checked);
-          
-          // Vertikale Linie basierend auf Checkbox-Status ein-/ausblenden
-          if (cursorVerticalLine) {
-              if (checkbox.checked) {
-                  // Nach oben ausblenden (wenn geöffnet)
-                  gsap.to(cursorVerticalLine, {
-                      opacity: 0,
-                      y: "-30%", // Hochanimieren
-                      duration: 0.15,
-                      ease: "power2.out" // Etwas smoothere Easing-Funktion
-                  });
-              } else {
-                  // Direkt an der aktuellen Position wieder einblenden
-                  gsap.to(cursorVerticalLine, {
-                      opacity: 1,
-                      y: 0, // Zurück zur Ausgangsposition
-                      duration: 0.15,
-                      ease: "power2.out" // Etwas smoothere Easing-Funktion
-                  });
-              }
-          }
-      });
-      
-      // Initialen Zustand setzen
-      if (checkbox.checked) {
-          updateCursorTextState(true);
-          
-          // Auch beim initialen Zustand die vertikale Linie richtig setzen
-          if (cursorVerticalLine) {
-              gsap.set(cursorVerticalLine, { opacity: 0, y: "-30%" });
-          }
+    const checkbox = dropdown.querySelector('.services_dropdown-checkbox, .approach_dropdown-checkbox, .webflow-benefits_dropdown-checkbox');
+    if (!checkbox) return; 
+    
+    // Hover Events
+    dropdown.addEventListener('mouseenter', () => {
+      // Wenn ein Timeout zum Ausblenden gesetzt war, abbrechen
+      if (dropdownLeaveTimeout) {
+        clearTimeout(dropdownLeaveTimeout);
+        dropdownLeaveTimeout = null;
       }
+      
+      isHoveringDropdown = true;
+      cursorDropdowns.classList.add('active');
+      currentDropdown = dropdown;
+      dropdownRect = dropdown.getBoundingClientRect();
+      
+      // Text basierend auf dem aktuellen Zustand dieses spezifischen Dropdowns aktualisieren
+      updateCursorTextState(checkbox.checked);
+      
+      // Vertikale Linie basierend auf Checkbox-Status ein-/ausblenden
+      if (cursorVerticalLine) {
+        // Gleiche Animation wie beim Click verwenden
+        if (checkbox.checked) {
+          // Nach oben ausblenden (wenn geöffnet)
+          gsap.to(cursorVerticalLine, {
+            opacity: 0,
+            y: "-30%", // Hochanimieren
+            duration: 0.15,
+            ease: "power2.out" // Etwas smoothere Easing-Funktion
+          });
+        } else {
+          // Direkt an der aktuellen Position wieder einblenden
+          gsap.to(cursorVerticalLine, {
+            opacity: 1,
+            y: 0, // Zurück zur Ausgangsposition
+            duration: 0.15,
+            ease: "power2.out" // Etwas smoothere Easing-Funktion
+          });
+        }
+      }
+      
+      // Cursor nur anzeigen, wenn die Maus bereits bewegt wurde
+      if (hasMouseMoved) {
+        // Cursor an die aktuelle Mausposition setzen und dann erst einblenden
+        showCursorWhenReady(cursorDropdowns, lastMouseX, lastMouseY);
+      }
+    });
+    
+    dropdown.addEventListener('mouseleave', () => {
+      // Verzögern des Ausblendens, um Flackern zu vermeiden
+      dropdownLeaveTimeout = setTimeout(() => {
+        // Nur ausblenden, wenn wir nicht über einem anderen Dropdown sind
+        if (!isHoveringDropdown) {
+          cursorDropdowns.classList.remove('active');
+          currentDropdown = null;
+          dropdownRect = null;
+          
+          // Cursor ausblenden mit etwas Verzögerung
+          gsap.to(cursorDropdowns, {
+            opacity: 0,
+            visibility: 'hidden',
+            duration: 0.2,
+            ease: "power3.out"
+          });
+        }
+        
+        dropdownLeaveTimeout = null;
+      }, 50); // Kurze Verzögerung, um Flackern zu vermeiden
+      
+      isHoveringDropdown = false;
+    });
+    
+    // Checkbox Change Event
+    checkbox.addEventListener('change', () => {
+      // Text und vertikale Linie gleichzeitig animieren
+      updateCursorTextState(checkbox.checked);
+      
+      // Vertikale Linie basierend auf Checkbox-Status ein-/ausblenden
+      if (cursorVerticalLine) {
+        if (checkbox.checked) {
+          // Nach oben ausblenden (wenn geöffnet)
+          gsap.to(cursorVerticalLine, {
+            opacity: 0,
+            y: "-30%", // Hochanimieren
+            duration: 0.15,
+            ease: "power2.out" // Etwas smoothere Easing-Funktion
+          });
+        } else {
+          // Direkt an der aktuellen Position wieder einblenden
+          gsap.to(cursorVerticalLine, {
+            opacity: 1,
+            y: 0, // Zurück zur Ausgangsposition
+            duration: 0.15,
+            ease: "power2.out" // Etwas smoothere Easing-Funktion
+          });
+        }
+      }
+    });
+    
+    // Initialen Zustand setzen
+    if (checkbox.checked) {
+      updateCursorTextState(true);
+      
+      // Auch beim initialen Zustand die vertikale Linie richtig setzen
+      if (cursorVerticalLine) {
+        gsap.set(cursorVerticalLine, { opacity: 0, y: "-30%" });
+      }
+    }
   });
   
   // =================== WORK ITEM INTERACTION =====================
-  // Hover Events für Work Step Headings
-  workItems.forEach(workItem => {
-      if (!cursorLinks) return;
-      
-      // Finde den zugehörigen Image Wrapper
-      const imgWrapper = workItem.querySelector('.work_img-wrapper');
-      
-      // Hover Events
-      workItem.addEventListener('mouseenter', () => {
-          cursorLinks.classList.add('active');
-          currentWorkItem = workItem;
-          workItemRect = workItem.getBoundingClientRect();
-          
-          // Zeige Image Wrapper
-          if (imgWrapper) {
-              gsap.set(imgWrapper, { opacity: 1 });
-          }
-          
-          // Cursor nur anzeigen, wenn die Maus bereits bewegt wurde
-          if (hasMouseMoved) {
-              // Cursor an die aktuelle Mausposition setzen und dann erst einblenden
-              showCursorWhenReady(cursorLinks, lastMouseX, lastMouseY);
-          }
-      });
-      
-      workItem.addEventListener('mouseleave', () => {
-          cursorLinks.classList.remove('active');
-          currentWorkItem = null;
-          workItemRect = null;
-          
-          // Verstecke Image Wrapper
-          if (imgWrapper) {
-              gsap.set(imgWrapper, { opacity: 0 });
-          }
-          
-          // Cursor ausblenden
-          gsap.to(cursorLinks, {
-              opacity: 0,
-              visibility: 'hidden',
-              duration: 0.2,
-              ease: "power3.out"
-          });
-          cursorIsReady = false;
-      });
-  });
+  // Hover Events für Work Step Headings mit gemeinsamer Funktion
+  setupHoverBehavior(
+    workItems,                                    // Elemente
+    cursorLinks,                                  // Cursor
+    (item) => { currentWorkItem = item; },       // Setter für currentElement
+    (rect) => { workItemRect = rect; },          // Setter für rect
+    {
+      // Zusätzliche Aktionen beim mouseenter
+      onEnter: (workItem) => {
+        const imgWrapper = workItem.querySelector('.work_img-wrapper');
+        if (imgWrapper) {
+          gsap.set(imgWrapper, { opacity: 1 });
+        }
+      },
+      // Zusätzliche Aktionen beim mouseleave
+      onLeave: (workItem) => {
+        const imgWrapper = workItem.querySelector('.work_img-wrapper');
+        if (imgWrapper) {
+          gsap.set(imgWrapper, { opacity: 0 });
+        }
+      }
+    }
+  );
   
-  // =================== HELPER FUNCTIONS ==========================
-  // Funktion zum Aktualisieren der Text-Zustände
-  function updateCursorTextState(isChecked) {
-      if (cursorTextElements.length === 0) return;
-      
-      // Animation ohne unnötige Parameter
-      const offset = isChecked ? "-1.1em" : "0";
-      cursorTextElements.forEach(element => {
-          gsap.to(element, {
-              y: offset,
-              duration: 0.1, // 100ms für schnellere, gleichmäßigere Animation
-              ease: "ease" // Linear und gleichmäßig
-          });
-      });
-  }
+  // =================== OFFER CARD INTERACTION =====================
+  // Hover Events für Offer Cards mit gemeinsamer Funktion
+  setupHoverBehavior(
+    offerCards,                                   // Elemente
+    cursorOffer,                                  // Cursor
+    (item) => { currentOfferCard = item; },      // Setter für currentElement
+    (rect) => { offerCardRect = rect; }          // Setter für rect
+  );
 
   // =================== PHYSIKBASIERTE ANIMATION LOOP =============
   // Animation Loop für physikbasierte Bewegung
   function animateWorkImages() {
-      if (workImgWrappers.length > 0) {
-          // Physikbasierte Animation für X-Position
-          const xDiff = targetX - currentX;
-          currentX += xDiff * 0.2; // Verzögerung für natürliches Gefühl - höhere Werte (0.2-0.3) = schnellere Reaktion
-          
-          // Berechne Skew basierend auf der Geschwindigkeit der Bewegung
-          const skewFactor = 0.5; // Stärke des Effekts - höhere Werte = stärkere Verzerrung (0.1-0.5 empfohlen)
-          const targetSkew = xDiff * skewFactor; // Positiver Wert damit der untere Teil zuerst beschleunigt
-          
-          // Physikbasierte Animation für Skew
-          skewVelocity += (targetSkew - currentSkew) * 0.5; // Beschleunigung - höhere Werte = schnellere Reaktion
-          skewVelocity *= 0.75; // Dämpfung - niedrigere Werte = längeres Nachschwingen
-          currentSkew += skewVelocity;
-          
-          // Animiere alle Work Item Images
-          workImgWrappers.forEach(wrapper => {
-              gsap.set(wrapper, {
-                  x: currentX,
-                  skewX: currentSkew
-              });
-          });
-      }
+    if (workImgWrappers.length > 0) {
+      // Physikbasierte Animation für X-Position
+      const xDiff = targetX - currentX;
+      currentX += xDiff * 0.2; // Verzögerung für natürliches Gefühl - höhere Werte (0.2-0.3) = schnellere Reaktion
       
-      // Animation fortsetzen
-      requestAnimationFrame(animateWorkImages);
+      // Berechne Skew basierend auf der Geschwindigkeit der Bewegung
+      const skewFactor = 0.5; // Stärke des Effekts - höhere Werte = stärkere Verzerrung (0.1-0.5 empfohlen)
+      const targetSkew = xDiff * skewFactor; // Positiver Wert damit der untere Teil zuerst beschleunigt
+      
+      // Physikbasierte Animation für Skew
+      skewVelocity += (targetSkew - currentSkew) * 0.5; // Beschleunigung - höhere Werte = schnellere Reaktion
+      skewVelocity *= 0.75; // Dämpfung - niedrigere Werte = längeres Nachschwingen
+      currentSkew += skewVelocity;
+      
+      // Animiere alle Work Item Images
+      workImgWrappers.forEach(wrapper => {
+        gsap.set(wrapper, {
+          x: currentX,
+          skewX: currentSkew
+        });
+      });
+    }
+    
+    // Animation fortsetzen
+    requestAnimationFrame(animateWorkImages);
   }
   
   // Animation starten
